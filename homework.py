@@ -5,10 +5,11 @@ import sys
 import time
 from http import HTTPStatus
 
-import exceptions
 import requests
 from dotenv import load_dotenv
 from telebot import TeleBot
+
+import exceptions
 
 load_dotenv()
 
@@ -55,7 +56,7 @@ def check_tokens():
     """Проверка наличия необходимых переменных окружения."""
     env_variables = [PRACTICUM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN]
     for variable in env_variables:
-        if variable is None:
+        if not variable or variable is None:
             logger.critical(NO_REQUIRED_VARIABLES.format(key=variable))
             raise UnboundLocalError(NO_REQUIRED_VARIABLES.format(key=variable))
 
