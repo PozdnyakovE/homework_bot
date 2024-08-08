@@ -1,11 +1,13 @@
+import json
 import logging
 import os
-import requests
 import sys
 import time
-
-from dotenv import load_dotenv
 from http import HTTPStatus
+
+import exceptions
+import requests
+from dotenv import load_dotenv
 from telebot import TeleBot
 
 load_dotenv()
@@ -24,7 +26,7 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-NO_REQUIRED_VARIABLES = 'Не найдены обязательные переменные окружения.'
+NO_REQUIRED_VARIABLES = 'Не найдены обязательные переменные окружения: {key}.'
 MESSAGE_SENT = 'Сообщение {key} отправлено'
 MESSAGE_NOT_SENT = 'Не удалось отправить сообщение. Ошибка: {key}'
 REQUEST_ERROR = 'Ошибка выполнения запроса: {key}'
@@ -36,6 +38,7 @@ STATUS_CHANGED = 'Изменился статус проверки работы 
 STATUS_NOT_CHANGED = 'Статус работы не обновлен.'
 COMMON_ERROR = 'Сбой в работе программы: {key}'
 NO_ACTIVE_HOMEWORKS = 'На данный момент нет домашних работ на проверке'
+JSON_ERROR = 'Ошбика преобразования ответа API к типу данных "dict": {key}'
 
 
 logger = logging.getLogger(__name__)
@@ -50,11 +53,11 @@ logger.addHandler(handler)
 
 def check_tokens():
     """Проверка наличия необходимых переменных окружения."""
-    if (PRACTICUM_TOKEN is None
-            or TELEGRAM_CHAT_ID is None
-            or TELEGRAM_TOKEN is None):
-        logger.critical(NO_REQUIRED_VARIABLES)
-        raise UnboundLocalError(NO_REQUIRED_VARIABLES)
+    env_variables = [PRACTICUM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN]
+    for variable in env_variables:
+        if variable is None:
+            logger.critical(NO_REQUIRED_VARIABLES.format(key=variable))
+            raise UnboundLocalError(NO_REQUIRED_VARIABLES.format(key=variable))
 
 
 def send_message(bot, message):
@@ -62,7 +65,6 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug(MESSAGE_SENT.format(key=message))
-        return True
     except Exception as error:
         logger.error(MESSAGE_NOT_SENT.format(key=error))
 
@@ -76,14 +78,16 @@ def get_api_answer(timestamp):
             ENDPOINT,
             headers=HEADERS,
             params={'from_date': timestamp})
+        response = homework_statuses.json()
     except requests.exceptions.RequestException as error:
-        logger.error(REQUEST_ERROR.format(key=error))
-        raise SystemError(error)
+        raise exceptions.BadRequestError(REQUEST_ERROR.format(key=error))
+    except json.decoder.JSONDecodeError as error:
+        raise exceptions.NotJSONError(JSON_ERROR.format(key=error))
     if homework_statuses.status_code != HTTPStatus.OK:
         raise requests.exceptions.HTTPError(
             SERVER_ERROR.format(key=homework_statuses.status_code)
         )
-    return homework_statuses.json()
+    return response
 
 
 def check_response(response):
@@ -94,8 +98,8 @@ def check_response(response):
     if (not isinstance(response, dict)
             or not isinstance(response.get('homeworks'), list)):
         raise TypeError(WRONG_API_RESPONSE)
-    if 'homeworks' not in response:
-        raise ValueError(NO_DATA_IN_API_RESPONSE.format(key='homeworks'))
+    if 'current_date' not in response:
+        raise ValueError(NO_DATA_IN_API_RESPONSE.format(key='current_date'))
     return response
 
 
@@ -125,10 +129,10 @@ def main():
         try:
             api_answer = check_response(get_api_answer(timestamp))
             homework_list = api_answer.get('homeworks')
-            if homework_list == []:
+            if not homework_list:
                 logger.debug(NO_ACTIVE_HOMEWORKS)
                 continue
-            timestamp = api_answer.get('current_date')
+            timestamp = api_answer.get('current_date', int(time.time()))
             message = parse_status(homework_list[0])
         except Exception as error:
             message = COMMON_ERROR.format(key=error)
