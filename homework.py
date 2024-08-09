@@ -56,7 +56,7 @@ def check_tokens():
     """Проверка наличия необходимых переменных окружения."""
     env_variables = [PRACTICUM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN]
     for variable in env_variables:
-        if not variable or variable is None:
+        if not variable:
             logger.critical(NO_REQUIRED_VARIABLES.format(key=variable))
             raise UnboundLocalError(NO_REQUIRED_VARIABLES.format(key=variable))
 
